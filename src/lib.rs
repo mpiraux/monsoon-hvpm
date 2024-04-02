@@ -1,7 +1,9 @@
 use std::{
     collections::HashMap,
     f32::consts::E,
-    time::{Duration, Instant},
+    iter::Sum,
+    ops::{Add, Div},
+    time::{Duration, Instant, SystemTime},
 };
 
 use log::{trace, warn};
@@ -175,7 +177,7 @@ struct HardwareSample {
     values: [u16; 8],
     sample_type: SampleType,
     unused: u8,
-    timestamp: Instant,
+    timestamp: SystemTime,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -185,7 +187,75 @@ pub struct SoftwareSample {
     pub aux_current: f64,
     pub main_voltage: f64,
     pub usb_voltage: f64,
-    pub timestamp: Instant,
+    pub timestamp: SystemTime,
+}
+
+impl SoftwareSample {
+    pub fn new() -> SoftwareSample {
+        SoftwareSample {
+            main_current: 0.,
+            usb_current: 0.,
+            aux_current: 0.,
+            main_voltage: 0.,
+            usb_voltage: 0.,
+            timestamp: SystemTime::now(),
+        }
+    }
+
+    pub fn csv_header() -> &'static str {
+        "timestamp,main_voltage,usb_voltage,main_current,usb_current,aux_current"
+    }
+
+    pub fn csv_row(&self) -> String {
+        format!(
+            "{},{},{},{},{},{}",
+            self.timestamp
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_micros(),
+            self.main_voltage,
+            self.usb_voltage,
+            self.main_current,
+            self.usb_current,
+            self.aux_current
+        )
+    }
+}
+
+impl Add<&SoftwareSample> for SoftwareSample {
+    type Output = SoftwareSample;
+
+    fn add(self, rhs: &SoftwareSample) -> Self::Output {
+        SoftwareSample {
+            main_current: self.main_current + rhs.main_current,
+            usb_current: self.usb_current + rhs.usb_current,
+            aux_current: self.aux_current + rhs.aux_current,
+            main_voltage: self.main_voltage + rhs.main_voltage,
+            usb_voltage: self.usb_voltage + rhs.usb_voltage,
+            timestamp: self.timestamp.min(rhs.timestamp),
+        }
+    }
+}
+
+impl Div<f64> for SoftwareSample {
+    type Output = SoftwareSample;
+
+    fn div(self, rhs: f64) -> Self::Output {
+        SoftwareSample {
+            main_current: self.main_current / rhs,
+            usb_current: self.usb_current / rhs,
+            aux_current: self.aux_current / rhs,
+            main_voltage: self.main_voltage / rhs,
+            usb_voltage: self.usb_voltage / rhs,
+            timestamp: self.timestamp,
+        }
+    }
+}
+
+impl<'a> Sum<&'a SoftwareSample> for SoftwareSample {
+    fn sum<I: Iterator<Item = &'a SoftwareSample>>(iter: I) -> Self {
+        iter.fold(SoftwareSample::new(), |a, s| a + s)
+    }
 }
 
 #[derive(Default)]
@@ -594,7 +664,7 @@ impl HVPM {
     }
 
     fn decode_packet(&mut self, packet: &[u8]) -> [Option<HardwareSample>; 3] {
-        let now = Instant::now();
+        let now = SystemTime::now();
         let dropped = u16::from_le_bytes([packet[0], packet[1]]);
         self.dropped = dropped as usize;
         let _flags = packet[2];
@@ -623,6 +693,7 @@ impl HVPM {
         samples
     }
 
+    /// Captures available samples until the end of the sampling period configured in [`HVPM::start_sampling()`].
     pub fn capture_samples(&mut self) -> Result<(), rusb::Error> {
         let device = self.device.open()?;
         loop {
@@ -635,6 +706,7 @@ impl HVPM {
         Ok(())
     }
 
+    /// Moves out the captured samples and dropped counter.
     pub fn captured_samples(&mut self) -> (Vec<SoftwareSample>, usize) {
         let ret = (self.samples.drain(..).collect(), self.dropped);
         self.dropped = 0;
@@ -644,8 +716,36 @@ impl HVPM {
 
 mod tests {
     use crate::*;
-    use std::time::Duration;
+    use std::time::{Duration, SystemTime};
     use test_log::test;
+
+    #[test]
+    fn sample_averages() {
+        let samples = [
+            SoftwareSample {
+                main_current: 1.,
+                usb_current: 2.,
+                aux_current: 3.,
+                main_voltage: 4.,
+                usb_voltage: 5.,
+                timestamp: SystemTime::now(),
+            },
+            SoftwareSample {
+                main_current: 2.,
+                usb_current: 3.,
+                aux_current: 4.,
+                main_voltage: 5.,
+                usb_voltage: 6.,
+                timestamp: SystemTime::now(),
+            },
+        ];
+        let average = samples.iter().sum::<SoftwareSample>() / samples.len() as f64;
+        assert!(average.main_current == 1.5);
+        assert!(average.usb_current == 2.5);
+        assert!(average.aux_current == 3.5);
+        assert!(average.main_voltage == 4.5);
+        assert!(average.usb_voltage == 5.5);
+    }
 
     #[test]
     fn test_bulk_read() {
