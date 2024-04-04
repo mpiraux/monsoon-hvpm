@@ -6,6 +6,7 @@ use std::{
     time::{Duration, Instant, SystemTime},
 };
 
+use clap::ValueEnum;
 use log::{trace, warn};
 use rusb::{Device, DeviceHandle, GlobalContext};
 
@@ -326,6 +327,13 @@ impl Status {
 
         Ok(())
     }
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+pub enum UsbPassthroughMode {
+    Off = 0,
+    On = 1,
+    Auto = 2,
 }
 
 fn find_usb_device() -> Option<Device<GlobalContext>> {
@@ -711,6 +719,12 @@ impl HVPM {
         let ret = (self.samples.drain(..).collect(), self.dropped);
         self.dropped = 0;
         ret
+    }
+
+    /// Sets the USB passthrough mode
+    pub fn set_usb_passthrough(&self, mode: UsbPassthroughMode) -> Result<(), rusb::Error> {
+        write_usb_control_value(&self.device.open()?, EepromOpCode::UsbPassthroughMode, mode as u32)?;
+        Ok(())
     }
 }
 

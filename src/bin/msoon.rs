@@ -2,14 +2,18 @@ use std::time::Duration;
 
 use clap::Parser;
 use itertools::Itertools;
-use monsoon_hvpm::{SoftwareSample, HVPM};
+use monsoon_hvpm::{SoftwareSample, UsbPassthroughMode, HVPM};
 
-#[derive(Parser, Clone, Debug)]
+#[derive(Parser, Clone)]
 #[command(version, about, long_about = None)]
 struct Args {
     /// Sets the voltage and enables the power supply output.
     #[arg(long)]
     set_voltage: Option<f64>,
+
+    /// Sets the USB passthrough mode.
+    #[arg(long, value_enum, default_value_t = UsbPassthroughMode::Off)]
+    usb_passthrough: UsbPassthroughMode,
 
     /// Keeps the output enabled when the program exits. Defaults to false
     #[arg(long, default_value_t = false)]
@@ -28,6 +32,7 @@ fn main() -> Result<(), rusb::Error> {
     env_logger::init();
     let args = Args::parse();
     let mut device = HVPM::new()?;
+    device.set_usb_passthrough(args.usb_passthrough)?;
     if let Some(voltage) = args.set_voltage {
         device.set_vout(voltage)?;
     }
