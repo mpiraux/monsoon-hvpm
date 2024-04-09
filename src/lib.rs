@@ -723,7 +723,11 @@ impl HVPM {
 
     /// Sets the USB passthrough mode
     pub fn set_usb_passthrough(&self, mode: UsbPassthroughMode) -> Result<(), rusb::Error> {
-        write_usb_control_value(&self.device.open()?, EepromOpCode::UsbPassthroughMode, mode as u32)?;
+        write_usb_control_value(
+            &self.device.open()?,
+            EepromOpCode::UsbPassthroughMode,
+            mode as u32,
+        )?;
         Ok(())
     }
 }

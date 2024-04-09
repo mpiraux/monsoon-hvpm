@@ -71,12 +71,15 @@ fn main() -> Result<(), rusb::Error> {
                 .open(path)
                 .map(|f| Box::new(f) as Box<dyn Write>),
             None => Ok(Box::new(io::stdout()) as Box<dyn Write>),
-        }.unwrap();
-        output.write(SoftwareSample::csv_header().as_bytes()).unwrap();
-        output.write(b"\n").unwrap();
+        }
+        .unwrap();
+        output
+            .write_all(SoftwareSample::csv_header().as_bytes())
+            .unwrap();
+        output.write_all(b"\n").unwrap();
         for s in samples {
-            output.write(s.csv_row().as_bytes()).unwrap();
-            output.write(b"\n").unwrap();
+            output.write_all(s.csv_row().as_bytes()).unwrap();
+            output.write_all(b"\n").unwrap();
         }
     }
     if !args.keep_output_enabled {
