@@ -1,3 +1,6 @@
+use std::fs::OpenOptions;
+use std::io::{self, Write};
+use std::path::PathBuf;
 use std::time::Duration;
 
 use clap::Parser;
@@ -26,6 +29,10 @@ struct Args {
     /// Aggregates collected samples per seconds. Defaults to false
     #[arg(long, default_value_t = false)]
     aggregate_samples: bool,
+
+    /// Writes output to file. Defaults to stdout when absent
+    #[arg(long)]
+    out: Option<PathBuf>,
 }
 
 fn main() -> Result<(), rusb::Error> {
@@ -57,9 +64,19 @@ fn main() -> Result<(), rusb::Error> {
         } else {
             collected
         };
-        println!("{}", SoftwareSample::csv_header());
+        let mut output = match args.out {
+            Some(ref path) => OpenOptions::new()
+                .write(true)
+                .create(true)
+                .open(path)
+                .map(|f| Box::new(f) as Box<dyn Write>),
+            None => Ok(Box::new(io::stdout()) as Box<dyn Write>),
+        }.unwrap();
+        output.write(SoftwareSample::csv_header().as_bytes()).unwrap();
+        output.write(b"\n").unwrap();
         for s in samples {
-            println!("{}", s.csv_row())
+            output.write(s.csv_row().as_bytes()).unwrap();
+            output.write(b"\n").unwrap();
         }
     }
     if !args.keep_output_enabled {
