@@ -44,9 +44,9 @@ fn main() -> Result<(), rusb::Error> {
         device.set_vout(voltage)?;
     }
     if args.sampling_duration > 0 {
-        device.start_sampling(Some(Duration::from_secs(args.sampling_duration as u64)))?;
+        device.start_sampling(Some(Duration::from_secs(args.sampling_duration)))?;
         device.capture_samples()?;
-        let (collected, dropped) = device.captured_samples();
+        let (collected, _dropped) = device.captured_samples();
         let samples: Vec<SoftwareSample> = if args.aggregate_samples {
             let collection_start = collected[0].timestamp;
             collected

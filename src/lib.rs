@@ -1,9 +1,8 @@
 use std::{
     collections::HashMap,
-    f32::consts::E,
     iter::Sum,
     ops::{Add, Div},
-    time::{Duration, Instant, SystemTime},
+    time::{Duration, SystemTime},
 };
 
 use clap::ValueEnum;
@@ -189,6 +188,12 @@ pub struct SoftwareSample {
     pub main_voltage: f64,
     pub usb_voltage: f64,
     pub timestamp: SystemTime,
+}
+
+impl Default for SoftwareSample {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl SoftwareSample {
@@ -663,10 +668,8 @@ impl HVPM {
     fn read_samples(&mut self, device: &DeviceHandle<GlobalContext>) -> Result<(), rusb::Error> {
         let mut packet = [0; 64];
         let read = device.read_bulk(0x81, &mut packet, Duration::from_millis(250))?;
-        for s in self.decode_packet(&packet[..read]) {
-            if let Some(sample) = s {
-                self.process_sample(sample);
-            }
+        for sample in self.decode_packet(&packet[..read]).into_iter().flatten() {
+            self.process_sample(sample);
         }
         Ok(())
     }
@@ -680,22 +683,22 @@ impl HVPM {
 
         let mut samples = [None; 3];
         let mut packet_iter = packet.iter().skip(4);
-        for i in 0..no_samples {
+        for sample in samples.iter_mut().take(no_samples) {
             let mut values = [0; 8];
-            for j in 0..values.len() {
-                values[j] = u16::from_be_bytes([
+            for v in &mut values {
+                *v = u16::from_be_bytes([
                     *packet_iter.next().unwrap(),
                     *packet_iter.next().unwrap(),
                 ]);
             }
-            let sample = HardwareSample {
+
+            *sample = Some(HardwareSample {
                 values,
                 unused: *packet_iter.next().unwrap(),
                 sample_type: (*packet_iter.next().unwrap() & 0x30).try_into().unwrap(),
                 timestamp: now,
-            };
-            trace!("Read sample {:?}", sample);
-            samples[i] = Some(sample)
+            });
+            trace!("Read sample {:?}", sample.unwrap());
         }
 
         samples
@@ -732,6 +735,7 @@ impl HVPM {
     }
 }
 
+#[cfg(test)]
 mod tests {
     use crate::*;
     use std::time::{Duration, SystemTime};
