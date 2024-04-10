@@ -68,6 +68,7 @@ fn main() -> Result<(), rusb::Error> {
             Some(ref path) => OpenOptions::new()
                 .write(true)
                 .create(true)
+                .truncate(true)
                 .open(path)
                 .map(|f| Box::new(f) as Box<dyn Write>),
             None => Ok(Box::new(io::stdout()) as Box<dyn Write>),
