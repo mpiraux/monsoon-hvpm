@@ -415,7 +415,7 @@ fn write_usb_control_value(
 
 fn find_and_connect() -> Result<Device<GlobalContext>, rusb::Error> {
     let device = find_usb_device().ok_or(rusb::Error::NoDevice)?;
-    let mut handle = device.open()?;
+    let mut handle = open_device(&device)?;
     let hw_model = read_usb_control_value(&handle, EepromOpCode::GetHardwareModel)?;
     let fw_version = read_usb_control_value(&handle, EepromOpCode::GetFirmwareVersion)?;
 
@@ -427,6 +427,17 @@ fn find_and_connect() -> Result<Device<GlobalContext>, rusb::Error> {
 
     let _config = device.config_descriptor(handle.active_configuration()?);
     Ok(device)
+}
+
+fn open_device(device: &Device<GlobalContext>) -> Result<DeviceHandle<GlobalContext>, rusb::Error> {
+    let mut handle = device.open()?;
+    if let Ok(active) = handle.kernel_driver_active(0) {
+        if active {
+            handle.detach_kernel_driver(0)?;
+        }
+    }
+    handle.claim_interface(0)?;
+    Ok(handle)
 }
 
 pub struct HVPM {
@@ -452,14 +463,14 @@ impl HVPM {
             samples: Vec::with_capacity(1000),
             dropped: 0,
         };
-        d.status.fill(&d.device.open()?)?;
+        d.status.fill(&open_device(&d.device)?)?;
         Ok(d)
     }
 
     /// Sets the output voltage. A positive voltage enables the output. A zero voltage disables it.
     pub fn set_vout(&self, voltage: f64) -> Result<(), rusb::Error> {
         assert!(voltage >= 0.);
-        let handle = self.device.open()?;
+        let handle = open_device(&self.device)?;
         let dac_calc_high = read_usb_control_value(&handle, EepromOpCode::GetDacCalHigh)?;
         let dac_calc_low = read_usb_control_value(&handle, EepromOpCode::GetDacCalLow)?;
 
@@ -479,7 +490,7 @@ impl HVPM {
 
     /// Starts the sampling for the given duration. When no duration is given, starts it for an indefinite period.
     pub fn start_sampling(&self, duration: Option<Duration>) -> Result<(), rusb::Error> {
-        let handle = self.device.open()?;
+        let handle = open_device(&self.device)?;
         if !is_ready_for(&handle, EepromOpCode::FirstOpCode)? {
             write_stop(&handle)?;
         }
@@ -504,7 +515,7 @@ impl HVPM {
 
     /// Stops the sampling.
     pub fn stop_sampling(&self) -> Result<(), rusb::Error> {
-        write_stop(&self.device.open()?)?;
+        write_stop(&open_device(&self.device)?)?;
         Ok(())
     }
 
@@ -706,7 +717,7 @@ impl HVPM {
 
     /// Captures available samples until the end of the sampling period configured in [`HVPM::start_sampling()`].
     pub fn capture_samples(&mut self) -> Result<(), rusb::Error> {
-        let device = self.device.open()?;
+        let device = open_device(&self.device)?;
         loop {
             match self.read_samples(&device) {
                 Ok(()) => {}
@@ -727,7 +738,7 @@ impl HVPM {
     /// Sets the USB passthrough mode
     pub fn set_usb_passthrough(&self, mode: UsbPassthroughMode) -> Result<(), rusb::Error> {
         write_usb_control_value(
-            &self.device.open()?,
+            &open_device(&self.device)?,
             EepromOpCode::UsbPassthroughMode,
             mode as u32,
         )?;
