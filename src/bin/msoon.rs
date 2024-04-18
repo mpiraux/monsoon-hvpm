@@ -83,7 +83,7 @@ fn main() -> Result<(), rusb::Error> {
             output.write_all(b"\n").unwrap();
         }
     }
-    if !args.keep_output_enabled {
+    if args.set_voltage.is_some() && !args.keep_output_enabled {
         device.set_vout(0.)?;
     }
     Ok(())
