@@ -1,6 +1,8 @@
 use std::fs::OpenOptions;
 use std::io::{self, Write};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use clap::Parser;
@@ -22,7 +24,7 @@ struct Args {
     #[arg(long, default_value_t = false)]
     keep_output_enabled: bool,
 
-    /// Starts sampling for the given duration in seconds.
+    /// Starts sampling for the given duration in seconds. Waits for SIGTERM when not specified.
     #[arg(long, default_value_t = 0)]
     sampling_duration: u64,
 
@@ -46,42 +48,52 @@ fn main() -> Result<(), rusb::Error> {
     if args.sampling_duration > 0 {
         device.start_sampling(Some(Duration::from_secs(args.sampling_duration)))?;
         device.capture_samples()?;
-        let (collected, _dropped) = device.captured_samples();
-        let samples: Vec<SoftwareSample> = if args.aggregate_samples {
-            let collection_start = collected[0].timestamp;
-            collected
-                .into_iter()
-                .group_by(|d| {
-                    d.timestamp
-                        .duration_since(collection_start)
-                        .unwrap()
-                        .as_secs()
-                })
-                .into_iter()
-                .map(|(_k, g)| g.collect::<Vec<SoftwareSample>>())
-                .map(|g| g.iter().sum::<SoftwareSample>() / g.len() as f64)
-                .collect()
-        } else {
-            collected
-        };
-        let mut output = match args.out {
-            Some(ref path) => OpenOptions::new()
-                .write(true)
-                .create(true)
-                .truncate(true)
-                .open(path)
-                .map(|f| Box::new(f) as Box<dyn Write>),
-            None => Ok(Box::new(io::stdout()) as Box<dyn Write>),
-        }
+    } else {
+        device.start_sampling(None)?;
+        let stop = Arc::new(AtomicBool::new(false));
+        let s = stop.clone();
+        ctrlc::set_handler(move || {
+            s.store(true, Ordering::SeqCst);
+        })
+        .expect("Error setting Ctrl-C handler");
+        device.capture_samples_until(stop)?;
+        device.stop_sampling()?;
+    }
+    let (collected, _dropped) = device.captured_samples();
+    let samples: Vec<SoftwareSample> = if args.aggregate_samples {
+        let collection_start = collected[0].timestamp;
+        collected
+            .into_iter()
+            .group_by(|d| {
+                d.timestamp
+                    .duration_since(collection_start)
+                    .unwrap()
+                    .as_secs()
+            })
+            .into_iter()
+            .map(|(_k, g)| g.collect::<Vec<SoftwareSample>>())
+            .map(|g| g.iter().sum::<SoftwareSample>() / g.len() as f64)
+            .collect()
+    } else {
+        collected
+    };
+    let mut output = match args.out {
+        Some(ref path) => OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(path)
+            .map(|f| Box::new(f) as Box<dyn Write>),
+        None => Ok(Box::new(io::stdout()) as Box<dyn Write>),
+    }
+    .unwrap();
+    output
+        .write_all(SoftwareSample::csv_header().as_bytes())
         .unwrap();
-        output
-            .write_all(SoftwareSample::csv_header().as_bytes())
-            .unwrap();
+    output.write_all(b"\n").unwrap();
+    for s in samples {
+        output.write_all(s.csv_row().as_bytes()).unwrap();
         output.write_all(b"\n").unwrap();
-        for s in samples {
-            output.write_all(s.csv_row().as_bytes()).unwrap();
-            output.write_all(b"\n").unwrap();
-        }
     }
     if args.set_voltage.is_some() && !args.keep_output_enabled {
         device.set_vout(0.)?;

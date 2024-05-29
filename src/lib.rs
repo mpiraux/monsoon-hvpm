@@ -2,7 +2,8 @@ use std::{
     collections::HashMap,
     iter::Sum,
     ops::{Add, Div},
-    time::{Duration, SystemTime},
+    sync::{atomic::AtomicBool, Arc},
+    time::{Duration, Instant, SystemTime},
 };
 
 use clap::ValueEnum;
@@ -713,6 +714,19 @@ impl HVPM {
         }
 
         samples
+    }
+
+    /// Captures available samples until the given stop condition becomes true.
+    pub fn capture_samples_until(&mut self, stop: Arc<AtomicBool>) -> Result<(), rusb::Error> {
+        let device = open_device(&self.device)?;
+        while !stop.load(std::sync::atomic::Ordering::SeqCst) {
+            match self.read_samples(&device) {
+                Ok(()) => {}
+                Err(rusb::Error::Timeout) => break,
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(())
     }
 
     /// Captures available samples until the end of the sampling period configured in [`HVPM::start_sampling()`].
