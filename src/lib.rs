@@ -3,7 +3,7 @@ use std::{
     iter::Sum,
     ops::{Add, Div},
     sync::{atomic::AtomicBool, Arc},
-    time::{Duration, Instant, SystemTime},
+    time::{Duration, SystemTime},
 };
 
 use clap::ValueEnum;
@@ -524,7 +524,8 @@ impl HVPM {
         match sample.sample_type {
             SampleType::Measurement => {
                 if !self.calibration.iter().all(|c| c.calibrated()) {
-                    warn!("Skipping measurement because of lack of calibration")
+                    warn!("Skipping measurement because of lack of calibration");
+                    return;
                 }
 
                 let main_current = {
